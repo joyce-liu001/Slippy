@@ -1,0 +1,484 @@
+#!/usr/bin/env python3
+
+import fileinput
+import sys
+import re
+
+
+class Quit_Command:
+    def __init__(self, n):
+        self.n = n
+    def apply(self, line, checkline):
+        global is_exit
+        if checkline:
+            if self.n:
+                is_exit = True
+                return (None, True)
+            else:
+                is_exit = True
+                return (line, True)
+        else:
+            return (line, False)
+
+class Print_Command:
+    def __init__(self, n):
+        self.n = n
+    def apply(self, line, checkline):
+        # check -n print
+        global i_replace
+        global replacement
+        if not self.n:
+            if checkline and i_replace:
+                replacement = replacement + line
+            elif checkline and not i_replace:
+                print(line, end="")
+            return (line, False)
+        else:
+            if checkline:
+                return (line, True)
+        return (line, False)
+
+class Delete_Command:
+    def __init__(self, n):
+        self.n = n
+    def apply(self, line, checkline):
+        # check -n print
+        if not checkline: 
+            return (line, False)
+        return (None, False)
+
+class Subsite_Command:
+    def __init__(self, frond_regex, regex, n, address, subword, globle):
+        self.regex = regex
+        self.address = address
+        self.n = n
+        self.subword = subword
+        self.frond_regex = frond_regex
+        self.globle = globle
+    def apply(self, line, num_line, is_last):
+        have_re = None
+        if self.frond_regex != None:
+            have_re = re.findall(rf"{self.frond_regex}", line)
+        if self.globle:
+            if self.address == 0:
+                if self.frond_regex != None and len(have_re) > 0:
+                    # have frond regex
+                    line = re.sub(self.regex, self.subword, line)
+                elif self.frond_regex == None:
+                    # no frond regex
+                    line = re.sub(self.regex, self.subword, line)
+            elif self.address == num_line:
+                if self.frond_regex != None and len(have_re) > 0:
+                    # have address and frond regex
+                    line = re.sub(self.regex, self.subword, line)
+                elif self.frond_regex == None:
+                    line = re.sub(self.regex, self.subword, line)
+
+            elif self.address == -1 and is_last:
+                if self.frond_regex != None and len(have_re) > 0:
+                    # have address and frond regex
+                    line = re.sub(self.regex, self.subword, line)
+                elif self.frond_regex == None:
+                    line = re.sub(self.regex, self.subword, line) 
+
+        elif self.address == 0 or self.address == num_line:
+            # not globle, just subsite first 
+            if self.frond_regex != None and len(have_re) > 0:
+                # have frond regex
+                line = re.sub(self.regex, self.subword, line, 1)
+            if self.frond_regex == None:
+                line = re.sub(self.regex, self.subword, line, 1)
+
+        elif self.address == -1 and is_last:
+                if self.frond_regex != None and len(have_re) > 0:
+                    # have frond regex
+                    line = re.sub(self.regex, self.subword, line, 1)
+                elif self.frond_regex == None:
+                    line = re.sub(self.regex, self.subword, line, 1)
+        return (line, False)         
+
+class Change_Command:
+    def __init__(self, n, append_word):
+        self.n = n
+        self.append_word = append_word
+    def apply(self, line, checkline):
+        if checkline: 
+            return (self.append_word, False)
+        return (line, False)
+
+class Insert_Command:
+    def __init__(self, n, append_word):
+        self.n = n
+        self.append_word = append_word
+    def apply(self, line, checkline):
+        global i_replace
+        global replacement
+        if checkline and i_replace:
+            replacement = replacement + self.append_word 
+        elif checkline and not i_replace:
+            print(self.append_word) 
+        return (line, False)
+
+class Append_Command:
+    def __init__(self, n, append_word):
+        self.n = n
+        self.append_word = append_word
+    def apply(self, line, checkline):
+        global i_replace
+        global replacement
+        if checkline and i_replace:
+            replacement = replacement + line
+            return (self.append_word, False)
+        elif checkline and not i_replace:
+            print(line, end='') 
+            return (self.append_word, False)
+        return (line, False)
+
+def check_line(regex, address, line, num_line, is_last):
+    if regex != '':
+        match_list = re.findall(rf"{regex}", line)
+        if len(match_list) > 0:
+            return True
+    else:
+        if num_line == address or address == 0:
+            return True
+        if address == -1 and is_last:
+            return True
+    return False
+
+def run_slippy_commond(slippy_commond, regex, address, line, is_last, n, start):
+    global num_line
+    global apply_status
+    checkline = check_line(regex, address, line, num_line, is_last)
+    # quit command
+    if slippy_commond[-1] == 'q':
+        quit_command = Quit_Command(n)
+        if start == None:
+            return quit_command.apply(line, checkline)
+        else: 
+            if check_range_apply(start, regex, address, line, is_last):
+                # if true
+                return quit_command.apply(line, True)
+            else:
+                return quit_command.apply(line, False)
+        
+    # print command
+    elif slippy_commond[-1] == 'p':
+        print_command = Print_Command(n)
+        if start == None:
+            # no range
+            return print_command.apply(line, checkline)
+        else:
+            if check_range_apply(start, regex, address, line, is_last):
+                # if true
+                return print_command.apply(line, True)
+            else:
+                return print_command.apply(line, False)
+    
+    # delete command
+    elif slippy_commond[-1] == 'd':
+        delete_command = Delete_Command(n)  
+        if start == None:
+            # no range
+            return delete_command.apply(line, checkline)
+        else:
+            if check_range_apply(start, regex, address, line, is_last):
+                # if true
+                return delete_command.apply(line, True)
+            else:
+                return delete_command.apply(line, False)
+   
+    else:
+        # find the delimit
+        delimit = re.findall("(\S)g?$", slippy_commond)
+        # substitute command
+        if re.match(f".*s{delimit[0]}.*{delimit[0]}g?$", slippy_commond):
+            regex_commond = slippy_commond.split(delimit[0])
+            frond_regex = None
+            regex = regex_commond[1]
+            subword = regex_commond[2]
+            if re.match(r'[0-9]*s', regex_commond[2]) and len(regex_commond) > 5:
+                frond_regex = regex_commond[1]
+                regex = regex_commond[3]
+                subword = regex_commond[4]
+            
+            if regex_commond[0][0:-1] != '' and frond_regex == None:
+                # sub have address
+                if regex_commond[0][0:-1] == '$':
+                    # for last line
+                    address = -1
+                else:
+                    address = int(regex_commond[0][0:-1])
+            elif regex_commond[2][0:-1] != '' and frond_regex != None:
+                if regex_commond[2][0:-1] == '$':
+                    address = -1
+                else:        
+                    address = int(regex_commond[2][0:-1])
+            else:
+                address = 0
+
+            if start == None:
+                # no range
+                sub_commond = Subsite_Command(frond_regex, regex, n, address, subword, slippy_commond[-1] == 'g')
+                return sub_commond.apply(line, num_line, is_last) 
+            else:
+                if check_range_apply(start, frond_regex, address, line, is_last):
+                    # if true
+                    sub_commond = Subsite_Command(None, regex, n, address, subword, slippy_commond[-1] == 'g')
+                    return sub_commond.apply(line, num_line, is_last)
+                else:
+                    return (line, False)
+        else:
+            regex_commond = slippy_commond.split("/")
+            if len(regex_commond) > 2:
+                slippy_commond = regex_commond[2]
+            else:
+                slippy_commond = regex_commond[0]
+            i = 0
+            while i < len(slippy_commond):
+                if slippy_commond[i] == 'c' or slippy_commond[i] == 'a' or slippy_commond[i] == 'i': 
+                    break
+                i+=1
+            if i != 0:
+                # address infront of c
+                if slippy_commond[0:i] == '$':
+                    # last line
+                    address = -1
+                else:
+                    address = int(slippy_commond[0:i])
+                append_word = slippy_commond[i+1:] + '\n'
+            else:
+                append_word = slippy_commond[1:] + '\n'
+            
+            checkline = check_line(regex, address, line, num_line, is_last)
+            if slippy_commond[i] == 'c':
+                # c - change command
+                change_command = Change_Command(n, append_word)
+                return change_command.apply(line, checkline)   
+            elif slippy_commond[i] == 'i':
+                # i - insert command
+                insert_command = Insert_Command(n, append_word.replace("\n", ""))
+                if start == None:
+                    return insert_command.apply(line, checkline)
+                else: 
+                    if check_range_apply(start, regex, address, line, is_last):
+                        # if true
+                        return insert_command.apply(line, True)
+                    else:
+                        return insert_command.apply(line, False)
+
+            elif slippy_commond[i] == 'a':
+                # a - append command
+                append_command = Append_Command(n, append_word)
+                if start == None:
+                    return append_command.apply(line, checkline)
+                else: 
+                    if check_range_apply(start, regex, address, line, is_last):
+                        # if true
+                        return append_command.apply(line, True)
+                    else:
+                        return append_command.apply(line, False)
+                  
+
+def read_input(commonds, file, n):
+    global num_line
+    global apply_status
+    global can_run_n
+    global i_replace
+    global replacement
+    global is_exit
+    next_line = file.readline()
+    line = next_line
+    while next_line != '':
+        # counr address 
+        line = next_line
+        if line == '':
+            break
+        # check is last line or not
+        next_line = file.readline()
+        is_last = False
+        if next_line == '':
+            is_last = True
+        num_line += 1 
+        line_already_run = False
+        for slippy_commond in commonds:
+            # find the start and finish of the range of lines the command applies
+            slippy_commond = slippy_commond.split(",")
+            start = None
+            if len(slippy_commond) > 1:
+                start = slippy_commond[0]
+            # run Slippy commands
+            if start != None:
+                # have range if apply
+                regex_commond = slippy_commond[1].split("/")
+                slippy_commond = slippy_commond[1]
+            else:
+                regex_commond = slippy_commond[0].split("/")
+                slippy_commond = slippy_commond[0]
+            
+            regex = ''
+            address = 0
+            if len(regex_commond) > 1:
+                if regex_commond[0] != '':
+                    address = regex_commond[0]
+                regex = regex_commond[1]         
+            elif slippy_commond[0:-1] == '$':
+                # It matches the last line
+                address = -1
+            elif slippy_commond[0:-1] != '' and slippy_commond.endswith(('d', 'p', 'q')):
+                # not subsite
+                address = int(slippy_commond[0:-1])
+            result = run_slippy_commond(slippy_commond, regex, address, line, is_last, n, start)
+            line = result[0]
+            line_already_run = result[1]
+            #print(result, slippy_commond, apply_status, num_line)
+            if line_already_run:
+                break
+            if line == None:
+                break
+            if is_exit and not i_replace:
+                return num_line
+        if line != None:
+            # check exist
+            if is_exit:
+                if i_replace:
+                    # -i command line option replaces file contents with the output of the Slippy commands.
+                    replacement = replacement + line
+                    continue
+                else:
+                    print(line, end='')
+                    return num_line
+            if n and not line_already_run and can_run_n:
+                # have p and -n and not run commond
+                continue
+            if n and line_already_run and line == '\n' and can_run_n:
+                # have p and -n and already run commond, but output is empty
+                continue
+            else:
+                if i_replace:
+                    # -i command line option replaces file contents with the output of the Slippy commands.
+                    replacement = replacement + line
+                else:
+                    print(line, end='')
+    return num_line
+        
+def check_range_apply(start, regex, address, line, is_last):
+    global num_line
+    global apply_status
+    if start == None:
+        apply_status = True
+        return True  
+    if '/' in start and not apply_status:
+        # from start and the status not be applied
+        # start with regex
+        start = start.split("/")
+        start_regex = start[1]
+        match_list = re.findall(rf"{start_regex}", line)
+        if len(match_list) > 0:
+            apply_status = True
+            return True
+    elif not apply_status:
+        # start with address
+        if start == '$' and is_last:
+            apply_status = True
+            return True 
+        start_address = int(start)
+        if num_line ==  start_address or start_address == 0:
+            apply_status = True
+            return True
+    else:
+        # apply_status == true, check finish
+        if address != 0 and num_line > address and '/' in start:
+            # Already beyond finish line
+            start = start.split("/")
+            start_regex = start[1]
+            match_list = re.findall(rf"{start_regex}", line)
+            if len(match_list) > 0:
+                apply_status = True
+                return True
+            else:
+                apply_status = False
+                return False
+        finish = check_line(regex, address, line, num_line, is_last)
+        if finish:
+            apply_status = False
+            return True 
+        else:
+            apply_status = True
+            return True
+    apply_status = False 
+    return False 
+
+if __name__ == "__main__":  
+    num_line = 0
+    apply_status = False
+    n = False
+    start_input = 0
+    i_replace = False
+    replacement = ''
+    is_exit = False
+    for i in range(1, len(sys.argv)):
+        if sys.argv[i] == '-i':
+            i_replace = True
+        elif sys.argv[i] == '-n':
+            n = True
+        elif sys.argv[i] == '-f':
+            # -f command line option
+            with open(sys.argv[i+1], "r") as f:
+                slippy = f.read()
+            start_input = i+2
+            break
+        else:
+            slippy = sys.argv[i]
+            start_input = i+1
+            break
+
+    # Comments & White Space
+    slippy = slippy.replace(" ","")
+    # Multiple Commands
+    commonds = re.split(';|\n' ,slippy)
+    commonds = list(filter(None, commonds))
+    for i in range(0, len(commonds)):
+        temp = commonds[i].split("#")
+        if temp[0] != '': 
+            commonds[i] = temp[0]
+        else:
+            commonds[i] = ''
+    commonds = list(filter(None, commonds))
+
+    # -n command line option is the only useful in conjunction with the p command, 
+    # but can still be used with the other commands.
+    can_run_n = False
+    if n and len(commonds) == 1 and not commonds[0].endswith(('p')):
+        # have -n
+        sys.exit(0)
+    elif n:
+        for slippy_commond in commonds:
+            if slippy_commond.endswith(('p')):
+                can_run_n = True
+        if not can_run_n:
+            sys.exit(0)
+
+    if start_input == len(sys.argv):
+        with sys.stdin as f:
+            num_line = read_input(commonds, f, n)
+    else:
+        for i in range(start_input, len(sys.argv)):
+            # input from file or stdin
+            if is_exit:
+                sys.exit(0)
+            with open(sys.argv[i], 'r+') as f:
+                num_line = read_input(commonds, f, n)
+            if i_replace:
+                with open(sys.argv[i], 'w') as f:
+                    f.write(replacement)
+                    replacement = ''
+    
+    
+
+        
+            
+
+
+
+        
